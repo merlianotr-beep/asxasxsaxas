@@ -43,22 +43,20 @@ function AppContent() {
     canvas.height = window.innerHeight;
 
     interface Dot {
-      baseX: number;
-      baseY: number;
       x: number;
       y: number;
-      vx: number;
-      vy: number;
+      brightness: number;
+      targetBrightness: number;
     }
 
     const dots: Dot[] = [];
     const spacing = 20;
-    const pushRadius = 130;
+    const mouseRadius = 120;
     const ripples: { x: number; y: number; radius: number; maxRadius: number }[] = [];
 
     for (let x = 0; x < canvas.width; x += spacing) {
       for (let y = 0; y < canvas.height; y += spacing) {
-        dots.push({ baseX: x, baseY: y, x, y, vx: 0, vy: 0 });
+        dots.push({ x, y, brightness: 0, targetBrightness: 0 });
       }
     }
 
@@ -66,67 +64,53 @@ function AppContent() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       ripples.forEach((ripple, index) => {
-        ripple.radius += 2.5;
+        ripple.radius += 3;
         if (ripple.radius > ripple.maxRadius) {
           ripples.splice(index, 1);
         }
       });
 
       dots.forEach((dot) => {
-        const dx = dot.baseX - mousePos.current.x;
-        const dy = dot.baseY - mousePos.current.y;
+        const dx = mousePos.current.x - dot.x;
+        const dy = mousePos.current.y - dot.y;
         const distanceToMouse = Math.sqrt(dx * dx + dy * dy);
 
-        let pushForce = 0;
+        let maxBrightness = 0;
 
-        if (distanceToMouse < pushRadius) {
-          const influence = 1 - (distanceToMouse / pushRadius);
-          pushForce = Math.pow(influence, 0.6) * 3;
+        if (distanceToMouse < mouseRadius) {
+          const mouseBrightness = 1 - (distanceToMouse / mouseRadius);
+          maxBrightness = Math.max(maxBrightness, mouseBrightness);
         }
 
         ripples.forEach((ripple) => {
-          const rippleDx = dot.baseX - ripple.x;
-          const rippleDy = dot.baseY - ripple.y;
+          const rippleDx = dot.x - ripple.x;
+          const rippleDy = dot.y - ripple.y;
           const distanceToRipple = Math.sqrt(rippleDx * rippleDx + rippleDy * rippleDy);
-          const rippleThickness = 50;
+          const rippleThickness = 40;
 
           if (Math.abs(distanceToRipple - ripple.radius) < rippleThickness) {
-            const rippleInfluence = 1 - (Math.abs(distanceToRipple - ripple.radius) / rippleThickness);
+            const rippleBrightness = 1 - (Math.abs(distanceToRipple - ripple.radius) / rippleThickness);
             const fadeOut = 1 - (ripple.radius / ripple.maxRadius);
-            const ripplePush = rippleInfluence * fadeOut * 4;
-
-            if (distanceToRipple > 0) {
-              const rippleDirX = rippleDx / distanceToRipple;
-              const rippleDirY = rippleDy / distanceToRipple;
-              dot.vx += rippleDirX * ripplePush;
-              dot.vy += rippleDirY * ripplePush;
-            }
+            maxBrightness = Math.max(maxBrightness, rippleBrightness * fadeOut);
           }
         });
 
-        if (pushForce > 0) {
-          if (distanceToMouse > 0) {
-            const dirX = dx / distanceToMouse;
-            const dirY = dy / distanceToMouse;
-            dot.vx += dirX * pushForce;
-            dot.vy += dirY * pushForce;
-          }
-        }
-
-        dot.vx *= 0.92;
-        dot.vy *= 0.92;
-
-        dot.x += dot.vx;
-        dot.y += dot.vy;
-
-        const returnSpeed = 0.08;
-        dot.x += (dot.baseX - dot.x) * returnSpeed;
-        dot.y += (dot.baseY - dot.y) * returnSpeed;
+        dot.targetBrightness = maxBrightness;
+        dot.brightness += (dot.targetBrightness - dot.brightness) * 0.15;
 
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, 1.5, 0, Math.PI * 2);
-        const fillColor = isDark ? 'rgba(100, 100, 100, 0.3)' : 'rgba(180, 180, 180, 0.4)';
-        ctx.fillStyle = fillColor;
+
+        const baseGray = isDark ? 100 : 180;
+        const baseAlpha = isDark ? 0.3 : 0.4;
+        const white = 255;
+
+        const r = baseGray + (white - baseGray) * dot.brightness;
+        const g = baseGray + (white - baseGray) * dot.brightness;
+        const b = baseGray + (white - baseGray) * dot.brightness;
+        const alpha = baseAlpha + (0.9 - baseAlpha) * dot.brightness;
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         ctx.fill();
       });
 
@@ -144,7 +128,7 @@ function AppContent() {
         x: e.clientX,
         y: e.clientY,
         radius: 0,
-        maxRadius: 350
+        maxRadius: 300
       });
     };
 
@@ -154,7 +138,7 @@ function AppContent() {
       dots.length = 0;
       for (let x = 0; x < canvas.width; x += spacing) {
         for (let y = 0; y < canvas.height; y += spacing) {
-          dots.push({ baseX: x, baseY: y, x, y, vx: 0, vy: 0 });
+          dots.push({ x, y, brightness: 0, targetBrightness: 0 });
         }
       }
     };
