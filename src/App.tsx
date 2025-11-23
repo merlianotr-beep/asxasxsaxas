@@ -42,38 +42,75 @@ function AppContent() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const dots: { x: number; y: number; baseX: number; baseY: number }[] = [];
+    interface Dot {
+      x: number;
+      y: number;
+      brightness: number;
+      targetBrightness: number;
+    }
+
+    const dots: Dot[] = [];
     const spacing = 20;
-    const maxDistance = 150;
+    const mouseRadius = 120;
+    const ripples: { x: number; y: number; radius: number; maxRadius: number }[] = [];
 
     for (let x = 0; x < canvas.width; x += spacing) {
       for (let y = 0; y < canvas.height; y += spacing) {
-        dots.push({ x, y, baseX: x, baseY: y });
+        dots.push({ x, y, brightness: 0, targetBrightness: 0 });
       }
     }
 
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      dots.forEach((dot) => {
-        const dx = mousePos.current.x - dot.baseX;
-        const dy = mousePos.current.y - dot.baseY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-
-        if (distance < maxDistance) {
-          const force = (maxDistance - distance) / maxDistance;
-          const waveEffect = Math.sin(force * Math.PI) * force;
-          dot.x = dot.baseX + dx * waveEffect * 0.5;
-          dot.y = dot.baseY + dy * waveEffect * 0.5;
-        } else {
-          dot.x += (dot.baseX - dot.x) * 0.08;
-          dot.y += (dot.baseY - dot.y) * 0.08;
+      ripples.forEach((ripple, index) => {
+        ripple.radius += 3;
+        if (ripple.radius > ripple.maxRadius) {
+          ripples.splice(index, 1);
         }
+      });
+
+      dots.forEach((dot) => {
+        const dx = mousePos.current.x - dot.x;
+        const dy = mousePos.current.y - dot.y;
+        const distanceToMouse = Math.sqrt(dx * dx + dy * dy);
+
+        let maxBrightness = 0;
+
+        if (distanceToMouse < mouseRadius) {
+          const mouseBrightness = 1 - (distanceToMouse / mouseRadius);
+          maxBrightness = Math.max(maxBrightness, mouseBrightness);
+        }
+
+        ripples.forEach((ripple) => {
+          const rippleDx = dot.x - ripple.x;
+          const rippleDy = dot.y - ripple.y;
+          const distanceToRipple = Math.sqrt(rippleDx * rippleDx + rippleDy * rippleDy);
+          const rippleThickness = 40;
+
+          if (Math.abs(distanceToRipple - ripple.radius) < rippleThickness) {
+            const rippleBrightness = 1 - (Math.abs(distanceToRipple - ripple.radius) / rippleThickness);
+            const fadeOut = 1 - (ripple.radius / ripple.maxRadius);
+            maxBrightness = Math.max(maxBrightness, rippleBrightness * fadeOut);
+          }
+        });
+
+        dot.targetBrightness = maxBrightness;
+        dot.brightness += (dot.targetBrightness - dot.brightness) * 0.15;
 
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, 1.5, 0, Math.PI * 2);
-        const fillColor = isDark ? 'rgba(100, 100, 100, 0.3)' : 'rgba(180, 180, 180, 0.4)';
-        ctx.fillStyle = fillColor;
+
+        const baseGray = isDark ? 100 : 180;
+        const baseAlpha = isDark ? 0.3 : 0.4;
+        const white = 255;
+
+        const r = baseGray + (white - baseGray) * dot.brightness;
+        const g = baseGray + (white - baseGray) * dot.brightness;
+        const b = baseGray + (white - baseGray) * dot.brightness;
+        const alpha = baseAlpha + (0.9 - baseAlpha) * dot.brightness;
+
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         ctx.fill();
       });
 
@@ -86,16 +123,33 @@ function AppContent() {
       mousePos.current = { x: e.clientX, y: e.clientY };
     };
 
+    const handleClick = (e: MouseEvent) => {
+      ripples.push({
+        x: e.clientX,
+        y: e.clientY,
+        radius: 0,
+        maxRadius: 300
+      });
+    };
+
     const handleResize = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
+      dots.length = 0;
+      for (let x = 0; x < canvas.width; x += spacing) {
+        for (let y = 0; y < canvas.height; y += spacing) {
+          dots.push({ x, y, brightness: 0, targetBrightness: 0 });
+        }
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('click', handleClick);
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('click', handleClick);
       window.removeEventListener('resize', handleResize);
     };
   }, [isDark]);
