@@ -45,23 +45,48 @@ function AppContent() {
     interface Dot {
       x: number;
       y: number;
+      originalX: number;
+      originalY: number;
+      offsetX: number;
+      offsetY: number;
       brightness: number;
       targetBrightness: number;
+      trail: number;
     }
 
     const dots: Dot[] = [];
     const spacing = 20;
     const mouseRadius = 120;
+    const repelRadius = 80;
+    const repelStrength = 15;
     const ripples: { x: number; y: number; radius: number; maxRadius: number }[] = [];
+    const mouseTrail: { x: number; y: number; timestamp: number }[] = [];
 
     for (let x = 0; x < canvas.width; x += spacing) {
       for (let y = 0; y < canvas.height; y += spacing) {
-        dots.push({ x, y, brightness: 0, targetBrightness: 0 });
+        dots.push({
+          x,
+          y,
+          originalX: x,
+          originalY: y,
+          offsetX: 0,
+          offsetY: 0,
+          brightness: 0,
+          targetBrightness: 0,
+          trail: 0
+        });
       }
     }
 
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const currentTime = Date.now();
+      mouseTrail.forEach((trail, index) => {
+        if (currentTime - trail.timestamp > 1500) {
+          mouseTrail.splice(index, 1);
+        }
+      });
 
       ripples.forEach((ripple, index) => {
         ripple.radius += 3;
@@ -71,20 +96,49 @@ function AppContent() {
       });
 
       dots.forEach((dot) => {
-        const dx = mousePos.current.x - dot.x;
-        const dy = mousePos.current.y - dot.y;
+        const dx = mousePos.current.x - dot.originalX;
+        const dy = mousePos.current.y - dot.originalY;
         const distanceToMouse = Math.sqrt(dx * dx + dy * dy);
 
+        let targetOffsetX = 0;
+        let targetOffsetY = 0;
+
+        if (distanceToMouse < repelRadius && distanceToMouse > 0) {
+          const repelForce = (1 - distanceToMouse / repelRadius) * repelStrength;
+          const angle = Math.atan2(dot.originalY - mousePos.current.y, dot.originalX - mousePos.current.x);
+          targetOffsetX = Math.cos(angle) * repelForce;
+          targetOffsetY = Math.sin(angle) * repelForce;
+        }
+
+        dot.offsetX += (targetOffsetX - dot.offsetX) * 0.1;
+        dot.offsetY += (targetOffsetY - dot.offsetY) * 0.1;
+
+        dot.x = dot.originalX + dot.offsetX;
+        dot.y = dot.originalY + dot.offsetY;
+
         let maxBrightness = 0;
+        let maxTrail = 0;
 
         if (distanceToMouse < mouseRadius) {
           const mouseBrightness = 1 - (distanceToMouse / mouseRadius);
           maxBrightness = Math.max(maxBrightness, mouseBrightness);
         }
 
+        mouseTrail.forEach((trail) => {
+          const trailDx = dot.originalX - trail.x;
+          const trailDy = dot.originalY - trail.y;
+          const distanceToTrail = Math.sqrt(trailDx * trailDx + trailDy * trailDy);
+          const trailAge = (currentTime - trail.timestamp) / 1500;
+
+          if (distanceToTrail < mouseRadius) {
+            const trailBrightness = (1 - distanceToTrail / mouseRadius) * (1 - trailAge) * 0.8;
+            maxTrail = Math.max(maxTrail, trailBrightness);
+          }
+        });
+
         ripples.forEach((ripple) => {
-          const rippleDx = dot.x - ripple.x;
-          const rippleDy = dot.y - ripple.y;
+          const rippleDx = dot.originalX - ripple.x;
+          const rippleDy = dot.originalY - ripple.y;
           const distanceToRipple = Math.sqrt(rippleDx * rippleDx + rippleDy * rippleDy);
           const rippleThickness = 40;
 
@@ -95,8 +149,9 @@ function AppContent() {
           }
         });
 
-        dot.targetBrightness = maxBrightness;
+        dot.targetBrightness = Math.max(maxBrightness, maxTrail);
         dot.brightness += (dot.targetBrightness - dot.brightness) * 0.15;
+        dot.trail += (maxTrail - dot.trail) * 0.1;
 
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, 1.5, 0, Math.PI * 2);
@@ -105,10 +160,11 @@ function AppContent() {
         const baseAlpha = isDark ? 0.3 : 0.4;
         const white = 255;
 
-        const r = baseGray + (white - baseGray) * dot.brightness;
-        const g = baseGray + (white - baseGray) * dot.brightness;
-        const b = baseGray + (white - baseGray) * dot.brightness;
-        const alpha = baseAlpha + (0.9 - baseAlpha) * dot.brightness;
+        const brightnessFactor = Math.max(dot.brightness, dot.trail);
+        const r = baseGray + (white - baseGray) * brightnessFactor;
+        const g = baseGray + (white - baseGray) * brightnessFactor;
+        const b = baseGray + (white - baseGray) * brightnessFactor;
+        const alpha = baseAlpha + (0.9 - baseAlpha) * brightnessFactor;
 
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
         ctx.fill();
@@ -120,7 +176,26 @@ function AppContent() {
     animate();
 
     const handleMouseMove = (e: MouseEvent) => {
-      mousePos.current = { x: e.clientX, y: e.clientY };
+      const newPos = { x: e.clientX, y: e.clientY };
+      const prevPos = mousePos.current;
+
+      const distance = Math.sqrt(
+        Math.pow(newPos.x - prevPos.x, 2) + Math.pow(newPos.y - prevPos.y, 2)
+      );
+
+      if (distance > 5) {
+        mouseTrail.push({
+          x: newPos.x,
+          y: newPos.y,
+          timestamp: Date.now()
+        });
+
+        if (mouseTrail.length > 30) {
+          mouseTrail.shift();
+        }
+      }
+
+      mousePos.current = newPos;
     };
 
     const handleClick = (e: MouseEvent) => {
@@ -138,7 +213,17 @@ function AppContent() {
       dots.length = 0;
       for (let x = 0; x < canvas.width; x += spacing) {
         for (let y = 0; y < canvas.height; y += spacing) {
-          dots.push({ x, y, brightness: 0, targetBrightness: 0 });
+          dots.push({
+            x,
+            y,
+            originalX: x,
+            originalY: y,
+            offsetX: 0,
+            offsetY: 0,
+            brightness: 0,
+            targetBrightness: 0,
+            trail: 0
+          });
         }
       }
     };
